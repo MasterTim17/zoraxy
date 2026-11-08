@@ -19,6 +19,11 @@
             opacity: 0.7;
         }
 
+        #logrenderWrapper {
+            width: 95% !important;
+            max-width: none !important;
+        }
+
         /* Panel menu */
         .logfile_menu_btn{
             height: 2.8em !important;
@@ -50,23 +55,36 @@
         }
 
         #logrender{
+            display: block;
             width: 100% !important;
             height: calc(100% - 1.2em);
             min-height: calc(90vh - 1.2em) !important;
+            margin: 0;
+            padding: 0.5em;
             border: 0px solid transparent !important;
             background-color: #252630;
             color: white;
             font-family: monospace;
             overflow-x: scroll !important;
+            overflow-y: auto;
             white-space: pre;
             resize: none;
             scrollbar-width: thin;
             font-size: 1.2em;
         }
 
-        #logrender::selection{ 
-            background:#3643bb; 
-            color:white; 
+        #logrender .status-200 {
+            color: #5be37d;
+        }
+
+        #logrender .status-4xx {
+            color: #ff6b6b;
+        }
+
+        #logrenderWrapper.logrender-fullscreen {
+            width: 100% !important;
+            max-width: none !important;
+            margin: 0 !important;
         }
 
         #errorHighlightWrapper{
@@ -99,8 +117,9 @@
             }
 
             #logrenderWrapper{
-                margin-left: 0em !important;
-                margin-right: 0em !important;
+                width: 100% !important;
+                margin-left: 0 !important;
+                margin-right: 0 !important;
             }
         }
     </style>
@@ -138,6 +157,17 @@
                     <div class="item" data-value="system"><i class="blue info circle icon"></i> System</div>
                     <div class="item" data-value="request"><i class="green exchange icon"></i> Request</div>
                     <div class="item" data-value="error"><i class="red exclamation triangle icon"></i> Error</div>
+                </div>
+            </div>
+
+            <!-- Request status filter -->
+            <div class="ui selection dropdown" id="requestStatusDropdown" style="margin-top:0.4em; margin-left:0.4em;">
+                <div class="text">All Request Statuses</div>
+                <i class="dropdown icon"></i>
+                <div class="menu">
+                    <div class="item" data-value="all">All Request Statuses</div>
+                    <div class="item" data-value="200"><i class="green circle icon"></i>200 OK</div>
+                    <div class="item" data-value="4xx"><i class="red circle icon"></i>4xx Client Errors</div>
                 </div>
             </div>
 
@@ -222,9 +252,7 @@
     <!-- Log Viewer -->
     <div id="logviewer" class="subpanel" style="display:none;">
         <div id="logrenderWrapper" class="ui container" style="position:relative;">
-            <textarea id="logrender" spellcheck="false" readonly="true">
-Pick a log file from the menu to start debugging
-            </textarea>
+            <pre id="logrender">Pick a log file from the menu to start debugging</pre>
             <!-- Full Screen Button -->
             <button id="toggleFullscreenBtn" class="ui icon black button" title="Toggle Full Screen" style="border: 1px solid white; position:absolute; top:0.5em; right:0.5em; z-index:999;">
                 <i class="expand arrows alternate icon"></i>
@@ -235,15 +263,15 @@ Pick a log file from the menu to start debugging
             </button>
             <script>
                 $("#scrollBottomBtn").on("click", function() {
-                    var textarea = document.getElementById('logrender');
-                    textarea.scrollTop = textarea.scrollHeight;
+                    var logrender = document.getElementById('logrender');
+                    logrender.scrollTop = logrender.scrollHeight;
                 });
             </script>
         </div>
         <script>
             // Toggle full screen for logrenderWrapper
             $("#toggleFullscreenBtn").on("click", function() {
-                $("#logrenderWrapper").toggleClass("ui container");
+                $("#logrenderWrapper").toggleClass("logrender-fullscreen");
                 $(this).find("i").toggleClass("expand arrows alternate compress arrows alternate");
             });
         </script>
@@ -280,6 +308,8 @@ Pick a log file from the menu to start debugging
     var currentLines = "100";
     var currentOpenedLogURL = "";
     var currentLogFile = "";
+    var currentLogData = "";
+    var requestStatusFilter = "all";
     var autoscroll = false;
 
     $(".checkbox").checkbox();
@@ -351,6 +381,15 @@ Pick a log file from the menu to start debugging
             openLog(null, null, currentLogFile, currentFilter, currentLines);
         }
     });
+
+    /* Request status filter */
+    $('#requestStatusDropdown').dropdown({
+        onChange: function(value) {
+            requestStatusFilter = value || "all";
+            renderLogWithCurrentFilter(currentLogData);
+        }
+    });
+    $('#requestStatusDropdown').dropdown('set selected', 'all');
 
     // Set default filter to "error"
     $('#filterDropdown').dropdown('set selected', 'all');
@@ -639,11 +678,48 @@ Pick a log file from the menu to start debugging
         return(n.toFixed(n < 10 && l > 0 ? 1 : 0) + ' ' + units[l]);
     }
 
-    //Filter the log and render it to text area based on current filter choice
+    function getRequestStatus(line) {
+        if (!line.includes("[router:")) {
+            return null;
+        }
+        let match = line.match(/\s(\d{3})\s*$/);
+        return match ? match[1] : null;
+    }
+
+    // Apply the request status filter and color matching request lines.
     function renderLogWithCurrentFilter(data){
-        $("#logrender").val(data);
-        var textarea = document.getElementById('logrender');
-        textarea.scrollTop = textarea.scrollHeight;
+        currentLogData = data || "";
+        let logrender = document.getElementById('logrender');
+        let fragment = document.createDocumentFragment();
+        let lines = currentLogData.split("\n");
+        let visibleLines = [];
+
+        lines.forEach(function(line) {
+            let status = getRequestStatus(line);
+            let showLine = requestStatusFilter === "all" ||
+                (requestStatusFilter === "200" && status === "200") ||
+                (requestStatusFilter === "4xx" && status !== null && status.startsWith("4"));
+
+            if (showLine) {
+                let lineElement = document.createElement("span");
+                if (status === "200") {
+                    lineElement.className = "status-200";
+                } else if (status !== null && status.startsWith("4")) {
+                    lineElement.className = "status-4xx";
+                }
+                lineElement.textContent = line;
+                visibleLines.push(lineElement);
+            }
+        });
+
+        visibleLines.forEach(function(lineElement, index) {
+            if (index > 0) {
+                fragment.appendChild(document.createTextNode("\n"));
+            }
+            fragment.appendChild(lineElement);
+        });
+        logrender.replaceChildren(fragment);
+        logrender.scrollTop = logrender.scrollHeight;
     }
 
     /* Auto scroll function */
