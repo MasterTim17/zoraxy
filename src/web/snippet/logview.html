@@ -319,8 +319,20 @@ Pick a log file from the menu to start debugging
             let $menu = $("#logfileDropdownMenu");
             $menu.html("");
             for (let [key, value] of Object.entries(data)) {
-                value.reverse();
-                value.forEach(file => {
+                value.slice().sort((a, b) => {
+                    let aDate = (a.Title || a.Filename).match(/(\d{4})[-_](\d{1,2})(?:[-_](\d{1,2}))?/);
+                    let bDate = (b.Title || b.Filename).match(/(\d{4})[-_](\d{1,2})(?:[-_](\d{1,2}))?/);
+                    if (aDate && bDate) {
+                        let dateDifference = (Number(bDate[1]) * 10000 + Number(bDate[2]) * 100 + Number(bDate[3] || 0)) -
+                            (Number(aDate[1]) * 10000 + Number(aDate[2]) * 100 + Number(aDate[3] || 0));
+                        if (dateDifference !== 0) {
+                            return dateDifference;
+                        }
+                    } else if (aDate || bDate) {
+                        return aDate ? -1 : 1;
+                    }
+                    return (b.Title || b.Filename).localeCompare(a.Title || a.Filename);
+                }).forEach(file => {
                     $menu.append(
                         `<div class="item" data-value="${file.Filename}" data-category="${key}">${file.Title} (${formatBytes(file.Filesize)})</div>`
                     );
